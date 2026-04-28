@@ -191,12 +191,13 @@ def _penalties(page: ExtractedPage) -> float:
 
 def expand_queries(query: str, mode: Mode,
                    forced_langs: list[str] | None = None) -> list[str]:
-    """Rule-based multilingual query expansion.
+    """Universal multilingual query expansion using semantic_engine + lang_expansions.
 
     forced_langs: list of lang codes from prefs (e.g. ["zh","de"]).
                   None = auto-detect from region.
     """
-    from lang_expansions import LANGUAGES, REGION_AUTO_LANGS
+    from lang_expansions import REGION_AUTO_LANGS
+    import semantic_engine as _se
 
     q = query.strip()
     q_lower = q.lower()
@@ -255,7 +256,6 @@ def expand_queries(query: str, mode: Mode,
         active_langs = ["zh"]
     elif detected_region:
         auto = REGION_AUTO_LANGS.get(detected_region, [])
-        # For Europe, narrow down by specific country mentions
         if detected_region == "europe":
             lang_country_map = {
                 "de": ["germany", "austria", "switzerland"],
@@ -269,25 +269,17 @@ def expand_queries(query: str, mode: Mode,
             auto = [lang for lang in auto
                     if any(c in q_lower for c in lang_country_map.get(lang, []))]
             if not auto:
-                # No specific country → include top 3 European langs
                 auto = ["de", "fr", "es"]
         active_langs = auto
     else:
         active_langs = []
 
-    # ── 4. Helper: extract matching translations ─────────────────────────────
-    def _match(src_dict: dict, text: str) -> list[str]:
-        out: list[str] = []
-        seen_v: set[str] = set()
-        for en_key in sorted(src_dict, key=len, reverse=True):  # longer keys first
-            if en_key in text and src_dict[en_key] not in seen_v:
-                out.append(src_dict[en_key])
-                seen_v.add(src_dict[en_key])
-        return out
-
     def _dedup(lst: list[str]) -> list[str]:
         seen_s: set[str] = set()
         return [x for x in lst if not (x in seen_s or seen_s.add(x))]  # type: ignore
+
+    # ── 4. Semantic analysis (universal — works for any industry/topic) ───────
+    sem = _se.analyze(q)
 
     # ── 5. Mode-specific English expansion ───────────────────────────────────
     city_map: dict[str, list[str]] = {
@@ -301,31 +293,73 @@ def expand_queries(query: str, mode: Mode,
         "oceania":      ["Sydney", "Melbourne", "Auckland"],
         "latam":        ["São Paulo", "Mexico City", "Buenos Aires", "Bogotá"],
         "south_asia":   ["Mumbai", "Delhi", "Bangalore", "Colombo"],
-        "europe":       [],  # too diverse to auto-add
+        "europe":       [],
     }
+
+    # Domain-aware English expansion suffixes
+    _DOMAIN_SUFFIXES: dict[str, dict[str, list[str]]] = {
+        "leadgen": {
+            "sports":        ["academy", "club", "facility contact"],
+            "travel":        ["travel agent", "tour operator", "reseller contact"],
+            "food":          ["supplier wholesale", "distributor contact"],
+            "tech":          ["vendor reseller", "partner contact"],
+            "business":      ["company supplier", "contact email"],
+            "finance":       ["firm contact", "services email"],
+            "education":     ["institute contact", "school email"],
+            "health":        ["clinic contact", "provider email"],
+            "legal":         ["law firm contact", "attorney email"],
+            "realestate":    ["agency contact", "agent email"],
+            "retail":        ["wholesaler contact", "distributor email"],
+            "manufacturing": ["factory supplier", "OEM contact"],
+            "fashion":       ["brand wholesale", "supplier contact"],
+            "automotive":    ["dealer contact", "fleet email"],
+            "logistics":     ["freight forwarder contact", "shipper email"],
+            "marketing":     ["agency contact", "services email"],
+            "construction":  ["contractor contact", "builder email"],
+            "events":        ["planner contact", "organizer email"],
+        },
+        "research": {
+            "sports":        ["industry association federation", "market overview"],
+            "travel":        ["tourism statistics industry", "market report"],
+            "tech":          ["landscape ecosystem report", "market analysis"],
+            "business":      ["industry report market", "sector overview"],
+            "finance":       ["market report regulatory", "sector analysis"],
+            "education":     ["statistics enrollment report"],
+            "health":        ["industry report healthcare market"],
+            "manufacturing": ["industry report output statistics"],
+            "energy":        ["market report capacity statistics"],
+            "agriculture":   ["industry statistics production report"],
+            "crypto":        ["market cap report ecosystem"],
+            "gaming":        ["market report revenue statistics"],
+        },
+    }
+
+    primary_domain = sem.primary_domain or "general"
 
     if mode == "leadgen":
         cities = city_map.get(detected_region or "", [])
-        for city in cities[:4]:
+        for city in cities[:3]:
             if city.lower() not in q_lower:
                 expanded.append(f"{q} {city}")
-        expanded.append(f"{q} contact email")
-        expanded.append(f"{q} travel agent reseller")
+        domain_sfx = _DOMAIN_SUFFIXES["leadgen"].get(primary_domain, ["contact email"])
+        for sfx in domain_sfx[:2]:
+            expanded.append(f"{q} {sfx}")
 
     elif mode == "research":
-        expanded.append(f"{q} industry market")
-        expanded.append(f"{q} association federation directory")
+        domain_sfx = _DOMAIN_SUFFIXES["research"].get(primary_domain, ["industry market report"])
+        for sfx in domain_sfx[:2]:
+            expanded.append(f"{q} {sfx}")
+        expanded.append(f"{q} association directory")
         if detected_region == "sea":
             for c in ["Thailand", "Singapore", "Malaysia", "Vietnam"]:
                 if c.lower() not in q_lower:
                     expanded.append(f"{q} {c}")
         elif detected_region == "europe":
-            for c in ["Germany", "France", "UK", "Netherlands"]:
+            for c in ["Germany", "France", "UK"]:
                 if c.lower() not in q_lower:
                     expanded.append(f"{q} {c}")
         elif detected_region == "china":
             expanded.append(f"{q} China mainland")
-            expanded.append(f"{q} Hong Kong")
         elif not detected_region:
             expanded.append(f"{q} international global")
 
@@ -333,32 +367,32 @@ def expand_queries(query: str, mode: Mode,
         expanded.append(f"{q} official site")
         expanded.append(f"{q} about contact")
 
-    # ── 6. Language expansions ───────────────────────────────────────────────
+    # ── 6. Universal language expansions via semantic_engine ─────────────────
     for lang_code in active_langs:
-        lang = LANGUAGES.get(lang_code)
-        if not lang:
-            continue
-        sport_parts = _match(lang.get("sport", {}), q_lower)
-        general_parts = _match(lang.get("general", {}), q_lower)
-        region_parts = _match(lang.get("region", {}), q_lower)
-        core = _dedup(sport_parts + general_parts)
-        if not core:
-            continue
-
-        if lang_code in ("zh", "zh_tw"):
-            reg = region_parts or (["东南亚"] if detected_region == "sea" else
-                                   ["中国"] if detected_region == "china" else [])
-            base = _dedup(core + reg)
-            if mode == "leadgen":
-                expanded.append(" ".join(_dedup(base + ["旅行社"])))
-                expanded.append(" ".join(_dedup(base + ["代理商", "联系方式"])))
-            elif mode == "research":
-                expanded.append(" ".join(base))
-        else:
-            # Latin-script and other languages: build a clean native query
-            native_query = " ".join(core[:4])
-            if native_query and native_query.lower() != q_lower:
-                expanded.append(native_query)
+        native = _se.build_native_query(q, lang_code, mode=mode)
+        if native and native.lower() != q_lower:
+            # For CJK leadgen: add contact suffix variant
+            if lang_code in ("zh", "zh_tw") and mode == "leadgen":
+                expanded.append(native)
+                contact_terms = sem.translations.get(lang_code, [])
+                # Find a contact-related term
+                contact_native = next(
+                    (t for t in contact_terms if any(
+                        c in t for c in ["联系", "聯絡", "邮件", "電郵"]
+                    )), None
+                )
+                if contact_native and contact_native not in native:
+                    expanded.append(f"{native} {contact_native}")
+            else:
+                expanded.append(native)
+                # Add mode suffix in target language if available
+                if mode == "leadgen":
+                    contact_terms = sem.translations.get(lang_code, [])
+                    # pick first 2 unique terms not already in native
+                    extras = [t for t in contact_terms
+                              if t not in native.split() and len(t) > 2][:2]
+                    if extras:
+                        expanded.append(f"{native} {' '.join(extras)}")
 
     # ── 7. Deduplicate preserving order ─────────────────────────────────────
     seen: set[str] = set()

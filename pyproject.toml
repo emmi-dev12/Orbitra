@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "orbitra"
+version = "1.0.0"
+description = "Self-hosted deterministic web intelligence engine — no AI, no API keys"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = ["web-scraping", "lead-generation", "research", "crawler", "multilingual"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
+dependencies = [
+    "playwright>=1.40",
+    "httpx>=0.25",
+    "rich>=13",
+    "uvicorn>=0.24",
+    "fastapi>=0.104",
+    "aiosqlite>=0.19",
+]
+
+[project.scripts]
+orbitra = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/emmi-dev12/Orbitra"
+Repository = "https://github.com/emmi-dev12/Orbitra"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "db*", "modules*", "ui*", "web*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.html", "*.css", "*.js"]

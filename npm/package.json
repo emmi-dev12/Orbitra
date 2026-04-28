@@ -1,0 +1,19 @@
+{
+  "name": "orbitra",
+  "version": "1.0.0",
+  "description": "Self-hosted deterministic web intelligence engine — no AI, no API keys",
+  "keywords": ["web-scraping", "lead-generation", "research", "crawler", "multilingual", "playwright"],
+  "homepage": "https://github.com/emmi-dev12/Orbitra",
+  "bugs": { "url": "https://github.com/emmi-dev12/Orbitra/issues" },
+  "repository": { "type": "git", "url": "https://github.com/emmi-dev12/Orbitra.git" },
+  "license": "MIT",
+  "bin": {
+    "orbitra": "./bin/orbitra.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
