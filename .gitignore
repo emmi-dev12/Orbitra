@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+orbitra.db
+results/
+docs/
+*.log
+.DS_Store
